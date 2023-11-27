@@ -189,8 +189,8 @@ struct Channel* InitChannel(int max_packets, int packet_len, float packet_loss)
         channel->bytes_sent_ = 0;
         channel->ts_ = time(NULL);
         channel->packet_loss_ = packet_loss;
-        // channel->policy_ = NO_REALLOC;
-        channel->policy_ = REALLOC;
+        channel->policy_ = NO_REALLOC;
+        // channel->policy_ = REALLOC;
         channel->alloc_ = NULL;
         for (int i = 0; i < max_packets; i++) {
             FreePacket(channel, InitPacket(packet_len));
