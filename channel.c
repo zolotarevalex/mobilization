@@ -107,7 +107,7 @@ struct Packet* AddPacket(struct Channel* channel, const char* buffer, int len)
         channel->alloc_ = packet;  
     }
 
-    memcmp(packet->buffer_, buffer, min(len, packet->len_));
+    memcpy(packet->buffer_, buffer, min(len, packet->len_));
 
     channel->packet_sent_++;
     channel->bytes_sent_ += packet->len_;
