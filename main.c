@@ -7,6 +7,7 @@
 #include "channel.h"
 #include "consumer.h"
 #include "producer.h"
+#include "files.h"
 
 
 char* MakeTestBuf(int len)
@@ -65,7 +66,7 @@ int main(int argc, char* argv[])
     struct Channel* channel = InitChannel(packet_pool, packet_len, packet_loss);
     struct Producer* producer = InitProducer(channel);
     struct Consumer* consumer = InitConsumer(channel);
-
+#if 0
     while (TRUE) {
         {
             char* buf = MakeTestBuf(packet_len);
@@ -86,6 +87,9 @@ int main(int argc, char* argv[])
             }
         }
     }
+#endif
+
+    gen_test_files(10, 1024, "test");
 
     CloseConsumer(consumer);
     CloseProducer(producer);

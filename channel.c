@@ -1,11 +1,7 @@
 #include "channel.h"
+#include "util.h"
 
 static const int MAX_DELAY = 5;
-
-int min(int val1, int val2)
-{
-    return val1 > val2 ? val1 : val2;
-}
 
 struct Packet* InitPacket(int len)
 {
