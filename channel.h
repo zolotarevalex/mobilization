@@ -33,11 +33,12 @@ struct Channel
     int packet_count_;
     int packet_sent_;
     int bytes_sent_;
+    int max_packet_len_;
     time_t ts_;
     float packet_loss_;
     enum AllocPolicy policy_;
     struct Packet* free_;
-    struct Packet* alloc_;
+    struct Packet* sent_;
 };
 
 struct Packet* InitPacket(int len);
@@ -50,5 +51,6 @@ struct Channel* InitChannel(int max_packets, int packet_len, float packet_loss);
 void CloseChannel(struct Channel* channel);
 BOOL IsChannelReady(struct Channel* channel);
 int GetInstantRate();
+BOOL AllPacketsReceived(struct Channel* channel);
 
 #endif

@@ -96,11 +96,11 @@ struct Packet* AddPacket(struct Channel* channel, const char* buffer, int len)
 
     ResetPacket(packet, packet->len_);
 
-    if (channel->alloc_ == NULL) {
-        channel->alloc_ = packet;
+    if (channel->sent_ == NULL) {
+        channel->sent_ = packet;
     } else {
-        packet->next_ = channel->alloc_;
-        channel->alloc_ = packet;  
+        packet->next_ = channel->sent_;
+        channel->sent_ = packet;  
     }
 
     memcpy(packet->buffer_, buffer, min(len, packet->len_));
@@ -108,7 +108,7 @@ struct Packet* AddPacket(struct Channel* channel, const char* buffer, int len)
     channel->packet_sent_++;
     channel->bytes_sent_ += packet->len_;
 
-    return channel->alloc_;
+    return channel->sent_;
 }
 
 void FreePacket(struct Channel* channel, struct Packet* packet)
@@ -123,11 +123,11 @@ void FreePacket(struct Channel* channel, struct Packet* packet)
         return;
     }
 
-    if (packet == channel->alloc_) {
-        channel->alloc_ = packet->next_;
+    if (packet == channel->sent_) {
+        channel->sent_ = packet->next_;
         packet->next_ = NULL; 
     } else {
-        struct Packet* current_alloc_node = channel->alloc_;
+        struct Packet* current_alloc_node = channel->sent_;
         struct Packet* prev_alloc_node = NULL;
         while(current_alloc_node != NULL) {
             if (current_alloc_node == packet) {
@@ -154,18 +154,18 @@ struct Packet* ConsumePacket(struct Channel* channel)
         return NULL;
     }
 
-    if (channel->alloc_ == NULL) {
+    if (channel->sent_ == NULL) {
         printf("no packets to consume\n");
         return NULL;
     }
 
-    struct Packet* packet = channel->alloc_;
+    struct Packet* packet = channel->sent_;
     if (time(NULL) - packet->ts_ < packet->delay_) {
         // printf("need to delay packet\n");
         return NULL;
     }
 
-    channel->alloc_ = packet->next_;
+    channel->sent_ = packet->next_;
 
     struct Packet* clone = ClonePacket(packet);
     FreePacket(channel, packet);
@@ -183,13 +183,14 @@ struct Channel* InitChannel(int max_packets, int packet_len, float packet_loss)
         channel->packet_count_ = 0;
         channel->packet_sent_ = 0;
         channel->bytes_sent_ = 0;
+        channel->max_packet_len_ = packet_len;
         channel->ts_ = time(NULL);
         channel->packet_loss_ = packet_loss;
         channel->policy_ = NO_REALLOC;
         // channel->policy_ = REALLOC;
-        channel->alloc_ = NULL;
+        channel->sent_ = NULL;
         for (int i = 0; i < max_packets; i++) {
-            FreePacket(channel, InitPacket(packet_len));
+            FreePacket(channel, InitPacket(channel->max_packet_len_));
         }
         printf("channel size: %d\n", channel_size);
     }
@@ -209,8 +210,8 @@ void CloseChannel(struct Channel* channel)
         free(packet);
     }
 
-    while(channel->alloc_) {
-        struct Packet* packet = channel->alloc_;
+    while(channel->sent_) {
+        struct Packet* packet = channel->sent_;
         channel->free_ = packet->next_;
         free(packet);
     }
@@ -230,4 +231,13 @@ BOOL IsChannelReady(struct Channel* channel)
 int GetInstantRate()
 {
     return rand() % 101 * 1000000;
+}
+
+BOOL AllPacketsReceived(struct Channel* channel)
+{
+    if (channel == NULL) {
+        return TRUE;
+    }
+
+    return (channel->sent_ == NULL);
 }
