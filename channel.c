@@ -1,3 +1,5 @@
+#include <assert.h>
+
 #include "channel.h"
 #include "util.h"
 
@@ -19,6 +21,7 @@ void ResetPacket(struct Packet* packet, int len)
         BOOL need_delay = rand() % 3 == 0;
         packet->delay_ = need_delay ? rand() % MAX_DELAY : 0;
         
+        packet->data_len_ = 0;
         packet->len_ = len;
         memset(packet->buffer_, 0, len);
     }
@@ -29,6 +32,7 @@ struct Packet* ClonePacket(struct Packet* packet)
     struct Packet* clone = InitPacket(packet->len_);
     if (clone != NULL) {
         memcpy(clone->buffer_, packet->buffer_, packet->len_);
+        clone->data_len_ = packet->data_len_;
         clone->ts_ = packet->ts_;
         clone->delay_ = packet->delay_;
     }
@@ -96,17 +100,18 @@ struct Packet* AddPacket(struct Channel* channel, const char* buffer, int len)
 
     ResetPacket(packet, packet->len_);
 
-    if (channel->sent_ == NULL) {
-        channel->sent_ = packet;
-    } else {
+    if (channel->sent_ != NULL) {
         packet->next_ = channel->sent_;
-        channel->sent_ = packet;  
     }
 
+    channel->sent_ = packet;
+
     memcpy(packet->buffer_, buffer, min(len, packet->len_));
+    
+    packet->data_len_ = len;
 
     channel->packet_sent_++;
-    channel->bytes_sent_ += packet->len_;
+    channel->bytes_sent_ += len;
 
     return channel->sent_;
 }
@@ -125,25 +130,26 @@ void FreePacket(struct Channel* channel, struct Packet* packet)
 
     if (packet == channel->sent_) {
         channel->sent_ = packet->next_;
-        packet->next_ = NULL; 
-    } else {
-        struct Packet* current_alloc_node = channel->sent_;
-        struct Packet* prev_alloc_node = NULL;
-        while(current_alloc_node != NULL) {
-            if (current_alloc_node == packet) {
-                prev_alloc_node->next_ = current_alloc_node->next_;
-                break;
-            }
+    } else if (channel->sent_ != NULL ) {
+        printf("packet != channel->sent_\n");
+        assert(0);
+        // struct Packet* current_alloc_node = channel->sent_;
+        // struct Packet* prev_alloc_node = NULL;
+        // while(current_alloc_node != NULL) {
+        //     if (current_alloc_node == packet) {
+        //         prev_alloc_node->next_ = current_alloc_node->next_;
+        //         break;
+        //     }
 
-            prev_alloc_node = current_alloc_node; 
-            current_alloc_node = current_alloc_node->next_;
-        }
+        //     prev_alloc_node = current_alloc_node; 
+        //     current_alloc_node = current_alloc_node->next_;
+        // }
     }
 
-    struct Packet* free_head = channel->free_;
-    channel->free_ = packet;
     ResetPacket(packet, packet->len_);
-    packet->next_ = free_head;
+
+    packet->next_ = channel->free_;
+    channel->free_ = packet;  
     channel->ready_ = TRUE;
 }
 
@@ -165,7 +171,7 @@ struct Packet* ConsumePacket(struct Channel* channel)
         return NULL;
     }
 
-    channel->sent_ = packet->next_;
+    channel->bytes_received_ += packet->data_len_;
 
     struct Packet* clone = ClonePacket(packet);
     FreePacket(channel, packet);
@@ -180,14 +186,16 @@ struct Channel* InitChannel(int max_packets, int packet_len, float packet_loss)
     if (channel != NULL) {
         channel->ready_ = TRUE;
         channel->max_packets_ = max_packets;
+        channel->data_len_ = 0;
         channel->packet_count_ = 0;
         channel->packet_sent_ = 0;
         channel->bytes_sent_ = 0;
+        channel->bytes_received_ = 0;
         channel->max_packet_len_ = packet_len;
         channel->ts_ = time(NULL);
         channel->packet_loss_ = packet_loss;
         channel->policy_ = NO_REALLOC;
-        // channel->policy_ = REALLOC;
+        //channel->policy_ = REALLOC;
         channel->sent_ = NULL;
         for (int i = 0; i < max_packets; i++) {
             FreePacket(channel, InitPacket(channel->max_packet_len_));
@@ -212,7 +220,7 @@ void CloseChannel(struct Channel* channel)
 
     while(channel->sent_) {
         struct Packet* packet = channel->sent_;
-        channel->free_ = packet->next_;
+        channel->sent_ = packet->next_;
         free(packet);
     }
 
@@ -239,5 +247,6 @@ BOOL AllPacketsReceived(struct Channel* channel)
         return TRUE;
     }
 
-    return (channel->sent_ == NULL);
+    return ((channel->data_len_ == channel->bytes_sent_) && 
+            (channel->bytes_sent_ == channel->bytes_received_));
 }

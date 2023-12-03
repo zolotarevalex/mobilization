@@ -26,10 +26,18 @@ struct Producer* InitProducer(struct Channel* channel, const char* file_name)
         free(producer);
         return NULL;
     }
-    producer->bytes_left_ = fseek(producer->file_, 0, SEEK_END);
+
+    fseek(producer->file_, 0, SEEK_END);
+    producer->bytes_left_ = ftell(producer->file_);
+
+    printf("%s bytes_left %d to read file %s\n", __FUNCTION__, producer->bytes_left_, file_name);
+
     rewind(producer->file_);
     producer->buf_ = NULL;
     producer->bytes_used_ = 0;
+
+    producer->channel_->data_len_ = producer->bytes_left_; 
+
     return producer;
 }
 
@@ -85,7 +93,8 @@ int SendFile(struct Producer* producer)
             return 0;            
         }
 
-        producer->bytes_used_ = fread(producer->buf_, 1, min(buf_len, producer->bytes_left_), producer->file_);
+        int size_to_read = min(buf_len, producer->bytes_left_);
+        producer->bytes_used_ = fread(producer->buf_, 1, size_to_read, producer->file_);
     }
 
     if (SendPacket(producer, producer->buf_, producer->bytes_used_)) {
@@ -96,8 +105,8 @@ int SendFile(struct Producer* producer)
             producer->bytes_left_ = 0;
         }
         producer->bytes_used_ = 0;
+        producer->buf_ = NULL;
     }
-
 
     return producer->bytes_left_;
 }

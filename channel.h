@@ -14,8 +14,17 @@ typedef int BOOL;
 struct Packet
 {
     struct Packet* next_;
+
+    //timespamt of packet creation
     time_t ts_;
+
+    //to simulate traffic delay
     int delay_;
+
+    //actual data size
+    int data_len_;
+
+    //buffer size
     int len_;
     char buffer_[];
 };
@@ -29,15 +38,42 @@ enum AllocPolicy
 struct Channel
 {
     BOOL ready_;
-    int max_packets_;
+
+    //total size of data to be transfered
+    int data_len_;
+
+    //total packets sent count (including drops)
     int packet_count_;
+
+    //packets sent
     int packet_sent_;
+
+    //bytes sent
     int bytes_sent_;
+
+    //bytes received by the consumer
+    int bytes_received_;
+
+    //buffer size to store single packet
     int max_packet_len_;
+
+    //timestamp to measure rate (updeted each second)
     time_t ts_;
+
+    //expected packet loss rate
     float packet_loss_;
+
+    //allocation policy. defines behavior behavoir of the channel
+    //for the case when there is no beuffer left to store new packet 
     enum AllocPolicy policy_;
+
+    //number of available buffers to store packets
+    int max_packets_;
+
+    //list of free buffers ready to store new packet
     struct Packet* free_;
+
+    //list of buffers with packets being sent
     struct Packet* sent_;
 };
 

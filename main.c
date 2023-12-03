@@ -7,7 +7,6 @@
 #include "channel.h"
 #include "consumer.h"
 #include "producer.h"
-#include "files.h"
 
 
 char* MakeTestBuf(int len)
@@ -76,9 +75,15 @@ int main(int argc, char* argv[])
     struct Producer* producer = InitProducer(channel, in_file_name);
     struct Consumer* consumer = InitConsumer(channel, out_file_name);
 
-    while (TRUE) {
+    do {
+        int bytes_left = SendFile(producer);
+        printf("bytes left %d\n", bytes_left);
+        
+        int bytes_received = ReceiveFile(consumer);
+        printf("bytes received %d\n", bytes_received);
 
-    }
+        // sleep(1);
+    } while (!AllPacketsReceived(channel));
 
     CloseConsumer(consumer);
     CloseProducer(producer);
