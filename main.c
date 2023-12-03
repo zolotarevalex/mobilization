@@ -8,20 +8,6 @@
 #include "consumer.h"
 #include "producer.h"
 
-
-char* MakeTestBuf(int len)
-{
-    char* buf = malloc(len);
-    if (buf != NULL) {
-        for (int j = 0; j < len; j++) {
-            buf[j] = rand() % 255 + 1;
-        }
-    }
-    
-    return buf;
-}
-
-
 int main(int argc, char* argv[])
 {
     srand(time(NULL));
@@ -30,7 +16,13 @@ int main(int argc, char* argv[])
     int packet_len = 1024;
     float packet_loss = 0.1;
 
-    if (argc > 1) {
+    if (argc < 6) {
+        printf("too few arguments.\n");
+        printf("usage: %s <packet_pool_size> <packet_len> <packet_loss> <input_file> <output_file>\n", argv[0]);
+        return 0;
+    }
+
+    {
         char* end = NULL;
         int packet_pool_arg = strtol(argv[1], &end, 10);
         if (packet_pool_arg == 0) {
@@ -40,7 +32,7 @@ int main(int argc, char* argv[])
         }
     }
 
-    if (argc > 2) {
+    {
         char* end = NULL;
         int packet_len_arg = strtol(argv[2], &end, 10);
         if (packet_len_arg == 0) {
@@ -50,7 +42,7 @@ int main(int argc, char* argv[])
         }
     }
 
-    if (argc > 3) {
+    {
         char* end = NULL;
         float packet_loss_arg = strtof(argv[3], &end);
         if (packet_loss_arg == 0) {
@@ -60,32 +52,28 @@ int main(int argc, char* argv[])
         }
     }
 
+    const char* in_file_name = argv[4];
+    const char* out_file_name = argv[5];
+
     printf("starting simulation with packet_pool: %d, packet_len: %d, packet_loss: %f\n", packet_pool, packet_len,packet_loss );
 
     struct Channel* channel = InitChannel(packet_pool, packet_len, packet_loss);
-    struct Producer* producer = InitProducer(channel);
-    struct Consumer* consumer = InitConsumer(channel);
+    struct Producer* producer = InitProducer(channel, in_file_name);
+    struct Consumer* consumer = InitConsumer(channel, out_file_name);
 
-    while (TRUE) {
-        {
-            char* buf = MakeTestBuf(packet_len);
-            struct Packet* packet = SendPacket(producer, buf, packet_len);
-            if (packet == NULL) {
-                // printf("failed to send packet\n");
-            }
-            free(buf);
+    do {
+        int bytes_left = SendFile(producer);
+        if (bytes_left > 0) {
+            printf("bytes left %d\n", bytes_left);
         }
         
-        {
-            struct Packet* packet = ReceivePacket(consumer);
-            if (packet != NULL) {
-                printf("received packet of %d bytes\n", packet->len_);
-                free(packet);
-            } else {
-                // printf("nothing to receive from the channel\n");
-            }
+        int bytes_received = ReceiveFile(consumer);
+        if (bytes_received > 0) {
+            printf("bytes received %d\n", bytes_received);
         }
-    }
+
+        // sleep(1);
+    } while (!AllPacketsReceived(channel));
 
     CloseConsumer(consumer);
     CloseProducer(producer);

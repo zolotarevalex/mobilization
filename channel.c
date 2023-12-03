@@ -1,11 +1,9 @@
+#include <assert.h>
+
 #include "channel.h"
+#include "util.h"
 
 static const int MAX_DELAY = 5;
-
-int min(int val1, int val2)
-{
-    return val1 > val2 ? val1 : val2;
-}
 
 struct Packet* InitPacket(int len)
 {
@@ -18,11 +16,14 @@ void ResetPacket(struct Packet* packet, int len)
 {
     if (packet != NULL) {
         packet->next_ = NULL;
+        packet->prev_ = NULL;
         packet->ts_ = time(NULL);
 
         BOOL need_delay = rand() % 3 == 0;
         packet->delay_ = need_delay ? rand() % MAX_DELAY : 0;
+        //packet->delay_ = 0;
         
+        packet->data_len_ = 0;
         packet->len_ = len;
         memset(packet->buffer_, 0, len);
     }
@@ -33,6 +34,7 @@ struct Packet* ClonePacket(struct Packet* packet)
     struct Packet* clone = InitPacket(packet->len_);
     if (clone != NULL) {
         memcpy(clone->buffer_, packet->buffer_, packet->len_);
+        clone->data_len_ = packet->data_len_;
         clone->ts_ = packet->ts_;
         clone->delay_ = packet->delay_;
     }
@@ -61,7 +63,7 @@ struct Packet* AddPacket(struct Channel* channel, const char* buffer, int len)
     time_t current_ts = time(NULL); 
     if (current_ts - channel->ts_ >= 1) {
         channel->ts_ = current_ts;
-        channel->bytes_sent_ = 0;
+        channel->bytes_sent_per_second_ = 0;
     }
 
     if (channel->free_ == NULL) {
@@ -89,8 +91,8 @@ struct Packet* AddPacket(struct Channel* channel, const char* buffer, int len)
     }
 
     int rate = GetInstantRate();
-    if (channel->bytes_sent_ > rate) {
-        printf("decreasing bitrate, bytes sent: %d, current rate: %d\n", channel->bytes_sent_, rate);
+    if (channel->bytes_sent_per_second_ > rate) {
+        printf("decreasing bitrate, bytes sent: %d, current rate: %d\n", channel->bytes_sent_per_second_, rate);
         return NULL;
     }
 
@@ -100,19 +102,24 @@ struct Packet* AddPacket(struct Channel* channel, const char* buffer, int len)
 
     ResetPacket(packet, packet->len_);
 
-    if (channel->alloc_ == NULL) {
-        channel->alloc_ = packet;
+    if (channel->sent_ != NULL) {
+        packet->next_ = channel->sent_;
+        channel->sent_->prev_ = packet;      
     } else {
-        packet->next_ = channel->alloc_;
-        channel->alloc_ = packet;  
+        channel->sent_tail_ = packet;
     }
 
+    channel->sent_ = packet;
+
     memcpy(packet->buffer_, buffer, min(len, packet->len_));
+    
+    packet->data_len_ = len;
 
     channel->packet_sent_++;
-    channel->bytes_sent_ += packet->len_;
+    channel->bytes_sent_per_second_ += len;
+    channel->bytes_sent_ += len;
 
-    return channel->alloc_;
+    return channel->sent_;
 }
 
 void FreePacket(struct Channel* channel, struct Packet* packet)
@@ -127,27 +134,25 @@ void FreePacket(struct Channel* channel, struct Packet* packet)
         return;
     }
 
-    if (packet == channel->alloc_) {
-        channel->alloc_ = packet->next_;
-        packet->next_ = NULL; 
-    } else {
-        struct Packet* current_alloc_node = channel->alloc_;
-        struct Packet* prev_alloc_node = NULL;
-        while(current_alloc_node != NULL) {
-            if (current_alloc_node == packet) {
-                prev_alloc_node->next_ = current_alloc_node->next_;
-                break;
-            }
-
-            prev_alloc_node = current_alloc_node; 
-            current_alloc_node = current_alloc_node->next_;
-        }
+    if (packet == channel->sent_tail_) {
+        channel->sent_tail_ = packet->prev_;
+    } else if (channel->sent_tail_ != NULL ) {
+        printf("packet != channel->sent_\n");
+        assert(0);
     }
 
-    struct Packet* free_head = channel->free_;
-    channel->free_ = packet;
+    if (packet == channel->sent_) {
+        channel->sent_ = NULL;
+    }
+
+    if (channel->sent_tail_ != NULL) {
+        channel->sent_tail_->next_ = NULL;
+    }
+
     ResetPacket(packet, packet->len_);
-    packet->next_ = free_head;
+
+    packet->next_ = channel->free_;
+    channel->free_ = packet;  
     channel->ready_ = TRUE;
 }
 
@@ -158,18 +163,18 @@ struct Packet* ConsumePacket(struct Channel* channel)
         return NULL;
     }
 
-    if (channel->alloc_ == NULL) {
-        printf("no packets to consume\n");
+    if (channel->sent_tail_ == NULL) {
+        // printf("no packets to consume\n");
         return NULL;
     }
 
-    struct Packet* packet = channel->alloc_;
+    struct Packet* packet = channel->sent_tail_;
     if (time(NULL) - packet->ts_ < packet->delay_) {
         // printf("need to delay packet\n");
         return NULL;
     }
 
-    channel->alloc_ = packet->next_;
+    channel->bytes_received_ += packet->data_len_;
 
     struct Packet* clone = ClonePacket(packet);
     FreePacket(channel, packet);
@@ -184,16 +189,21 @@ struct Channel* InitChannel(int max_packets, int packet_len, float packet_loss)
     if (channel != NULL) {
         channel->ready_ = TRUE;
         channel->max_packets_ = max_packets;
+        channel->data_len_ = 0;
         channel->packet_count_ = 0;
         channel->packet_sent_ = 0;
+        channel->bytes_sent_per_second_ = 0;
         channel->bytes_sent_ = 0;
+        channel->bytes_received_ = 0;
+        channel->max_packet_len_ = packet_len;
         channel->ts_ = time(NULL);
         channel->packet_loss_ = packet_loss;
         channel->policy_ = NO_REALLOC;
-        // channel->policy_ = REALLOC;
-        channel->alloc_ = NULL;
+        //channel->policy_ = REALLOC;
+        channel->sent_ = NULL;
+        channel->sent_tail_ = NULL;
         for (int i = 0; i < max_packets; i++) {
-            FreePacket(channel, InitPacket(packet_len));
+            FreePacket(channel, InitPacket(channel->max_packet_len_));
         }
         printf("channel size: %d\n", channel_size);
     }
@@ -213,9 +223,9 @@ void CloseChannel(struct Channel* channel)
         free(packet);
     }
 
-    while(channel->alloc_) {
-        struct Packet* packet = channel->alloc_;
-        channel->free_ = packet->next_;
+    while(channel->sent_) {
+        struct Packet* packet = channel->sent_;
+        channel->sent_ = packet->next_;
         free(packet);
     }
 
@@ -234,4 +244,14 @@ BOOL IsChannelReady(struct Channel* channel)
 int GetInstantRate()
 {
     return rand() % 101 * 1000000;
+}
+
+BOOL AllPacketsReceived(struct Channel* channel)
+{
+    if (channel == NULL) {
+        return TRUE;
+    }
+
+    return ((channel->data_len_ == channel->bytes_sent_) && 
+            (channel->bytes_sent_ == channel->bytes_received_));
 }
