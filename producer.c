@@ -81,7 +81,7 @@ int SendFile(struct Producer* producer)
     }
 
     if (producer->bytes_left_ <= 0) {
-        printf("no more bytes to send\n");
+        // printf("no more bytes to send\n");
         return 0;
     }
 

@@ -73,7 +73,7 @@ int ReceiveFile(struct Consumer* receiver)
     int bytes = 0;
     struct Packet* packet = ReceivePacket(receiver);
     if (packet != NULL) {
-        bytes = fwrite(packet->buffer_, 1, packet->len_, receiver->file_);
+        bytes = fwrite(packet->buffer_, 1, packet->data_len_, receiver->file_);
         free(packet);
     }
 

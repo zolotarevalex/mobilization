@@ -14,6 +14,7 @@ typedef int BOOL;
 struct Packet
 {
     struct Packet* next_;
+    struct Packet* prev_;
 
     //timespamt of packet creation
     time_t ts_;
@@ -48,7 +49,10 @@ struct Channel
     //packets sent
     int packet_sent_;
 
-    //bytes sent
+    //bytes sent per second, used to measure instant rate
+    int bytes_sent_per_second_;
+
+    //total amount of bytes sent
     int bytes_sent_;
 
     //bytes received by the consumer
@@ -75,6 +79,8 @@ struct Channel
 
     //list of buffers with packets being sent
     struct Packet* sent_;
+
+    struct Packet* sent_tail_;
 };
 
 struct Packet* InitPacket(int len);

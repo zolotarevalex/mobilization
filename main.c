@@ -8,20 +8,6 @@
 #include "consumer.h"
 #include "producer.h"
 
-
-char* MakeTestBuf(int len)
-{
-    char* buf = malloc(len);
-    if (buf != NULL) {
-        for (int j = 0; j < len; j++) {
-            buf[j] = rand() % 255 + 1;
-        }
-    }
-    
-    return buf;
-}
-
-
 int main(int argc, char* argv[])
 {
     srand(time(NULL));
@@ -77,10 +63,14 @@ int main(int argc, char* argv[])
 
     do {
         int bytes_left = SendFile(producer);
-        printf("bytes left %d\n", bytes_left);
+        if (bytes_left > 0) {
+            printf("bytes left %d\n", bytes_left);
+        }
         
         int bytes_received = ReceiveFile(consumer);
-        printf("bytes received %d\n", bytes_received);
+        if (bytes_received > 0) {
+            printf("bytes received %d\n", bytes_received);
+        }
 
         // sleep(1);
     } while (!AllPacketsReceived(channel));
