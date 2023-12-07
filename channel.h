@@ -50,7 +50,7 @@ struct Channel
     int packet_sent_;
 
     //bytes sent per second, used to measure instant rate
-    int bytes_sent_per_second_;
+    int bits_sent_per_second_;
 
     //total amount of bytes sent
     int bytes_sent_;
@@ -66,6 +66,9 @@ struct Channel
 
     //expected packet loss rate
     float packet_loss_;
+
+    //bits per sec for simulation, calculated each second
+    int traffic_rate_;
 
     //allocation policy. defines behavior behavoir of the channel
     //for the case when there is no beuffer left to store new packet 
