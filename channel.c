@@ -21,7 +21,7 @@ void ResetPacket(struct Packet* packet, int len)
 
         BOOL need_delay = rand() % 3 == 0;
         packet->delay_ = need_delay ? rand() % MAX_DELAY : 0;
-        //packet->delay_ = 0;
+        // packet->delay_ = 0;
         
         packet->data_len_ = 0;
         packet->len_ = len;
@@ -58,12 +58,11 @@ struct Packet* AddPacket(struct Channel* channel, const char* buffer, int len)
         return NULL;
     }
 
-    channel->packet_count_++;
-
     time_t current_ts = time(NULL); 
     if (current_ts - channel->ts_ >= 1) {
         channel->ts_ = current_ts;
-        channel->bytes_sent_per_second_ = 0;
+        channel->bits_sent_per_second_ = 0;
+        channel->traffic_rate_ = GetInstantRate();
     }
 
     if (channel->free_ == NULL) {
@@ -77,24 +76,26 @@ struct Packet* AddPacket(struct Channel* channel, const char* buffer, int len)
         channel->free_ = InitPacket(len);
     }
 
-    BOOL can_be_dropped = ((rand() % 100 + 1) <= (100 * channel->packet_loss_));
+    if (channel->bits_sent_per_second_ > channel->traffic_rate_) {
+        printf("decreasing bitrate, bits sent: %d, current rate: %d\n", channel->bits_sent_per_second_, channel->traffic_rate_);
+        return NULL;
+    }
 
-    if (can_be_dropped) {
+    channel->packet_count_++;
+    channel->bits_sent_per_second_ += len*8;
+
+    // BOOL can_be_dropped = ((rand() % 100 + 1) <= (100 * channel->packet_loss_));
+
+    // if (can_be_dropped) {
         int packets_dropped = channel->packet_count_ - channel->packet_sent_;
         float packet_loss_rate = (float)packets_dropped / channel->packet_count_;
 
         if (packet_loss_rate <= channel->packet_loss_) {
             printf("channel is not able to deliver the packet, dropping...\n");
-            printf("packet loss %f\n", packet_loss_rate);
+            printf("packet loss %f with packets sent %d, dropped %d\n", packet_loss_rate, channel->packet_count_, packets_dropped);
             return NULL;
         }
-    }
-
-    int rate = GetInstantRate();
-    if (channel->bytes_sent_per_second_ > rate) {
-        printf("decreasing bitrate, bytes sent: %d, current rate: %d\n", channel->bytes_sent_per_second_, rate);
-        return NULL;
-    }
+    // }
 
     struct Packet* packet = channel->free_;
     struct Packet* free_head = packet->next_;
@@ -116,7 +117,6 @@ struct Packet* AddPacket(struct Channel* channel, const char* buffer, int len)
     packet->data_len_ = len;
 
     channel->packet_sent_++;
-    channel->bytes_sent_per_second_ += len;
     channel->bytes_sent_ += len;
 
     return channel->sent_;
@@ -192,20 +192,20 @@ struct Channel* InitChannel(int max_packets, int packet_len, float packet_loss)
         channel->data_len_ = 0;
         channel->packet_count_ = 0;
         channel->packet_sent_ = 0;
-        channel->bytes_sent_per_second_ = 0;
+        channel->bits_sent_per_second_ = 0;
         channel->bytes_sent_ = 0;
         channel->bytes_received_ = 0;
         channel->max_packet_len_ = packet_len;
         channel->ts_ = time(NULL);
         channel->packet_loss_ = packet_loss;
-        channel->policy_ = NO_REALLOC;
-        //channel->policy_ = REALLOC;
+        channel->traffic_rate_ = GetInstantRate();
+        // channel->policy_ = NO_REALLOC;
+        channel->policy_ = REALLOC;
         channel->sent_ = NULL;
         channel->sent_tail_ = NULL;
         for (int i = 0; i < max_packets; i++) {
             FreePacket(channel, InitPacket(channel->max_packet_len_));
         }
-        printf("channel size: %d\n", channel_size);
     }
     return channel;
 }
@@ -243,7 +243,8 @@ BOOL IsChannelReady(struct Channel* channel)
 
 int GetInstantRate()
 {
-    return rand() % 101 * 1000000;
+    return rand() % 100000000;
+    // return 100000000;
 }
 
 BOOL AllPacketsReceived(struct Channel* channel)

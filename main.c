@@ -61,6 +61,8 @@ int main(int argc, char* argv[])
     struct Producer* producer = InitProducer(channel, in_file_name);
     struct Consumer* consumer = InitConsumer(channel, out_file_name);
 
+    time_t start_ts = time(NULL);
+
     do {
         int bytes_left = SendFile(producer);
         if (bytes_left > 0) {
@@ -75,9 +77,13 @@ int main(int argc, char* argv[])
         // sleep(1);
     } while (!AllPacketsReceived(channel));
 
+    time_t end_ts = time(NULL);
+
     CloseConsumer(consumer);
     CloseProducer(producer);
     CloseChannel(channel);
     
+    printf("simulation took %ld seconds\n", end_ts - start_ts);
+
     return 0;
 }
