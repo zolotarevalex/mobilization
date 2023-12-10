@@ -64,12 +64,12 @@ int main(int argc, char* argv[])
     time_t start_ts = time(NULL);
 
     do {
-        int bytes_left = SendFile(producer);
+        int bytes_left = SendFileFragment(producer);
         if (bytes_left > 0) {
             printf("bytes left %d\n", bytes_left);
         }
         
-        int bytes_received = ReceiveFile(consumer);
+        int bytes_received = ReceiveFileFragment(consumer);
         if (bytes_received > 0) {
             printf("bytes received %d\n", bytes_received);
         }
@@ -78,6 +78,16 @@ int main(int argc, char* argv[])
     } while (!AllPacketsReceived(channel));
 
     time_t end_ts = time(NULL);
+
+    int fragments_left = 0;
+    struct Fragment* fragment = producer->next_fragment_;
+    while (fragment)
+    {
+        fragment = fragment->next_;
+        fragments_left++;
+    }
+    
+    printf("fragments left: %d\n", fragments_left);
 
     CloseConsumer(consumer);
     CloseProducer(producer);

@@ -1,5 +1,7 @@
 #include "consumer.h"
 
+#include <assert.h>
+
 struct Consumer* InitConsumer(struct Channel* channel, const char* file_name)
 {
     if (channel == NULL) {
@@ -18,6 +20,7 @@ struct Consumer* InitConsumer(struct Channel* channel, const char* file_name)
         return NULL;
     }
 
+    consumer->next_seq_number_ = 0;
     consumer->channel_ = channel;
     consumer->file_ = fopen(file_name, "wb");
     if (consumer->file_ == NULL) {
@@ -25,6 +28,8 @@ struct Consumer* InitConsumer(struct Channel* channel, const char* file_name)
         free(consumer);
         return NULL;
     }
+
+    channel->receiver_ = consumer;
 
     return consumer;
 }
@@ -53,7 +58,7 @@ struct Packet* ReceivePacket(struct Consumer* receiver)
     return ConsumePacket(receiver->channel_);
 }
 
-int ReceiveFile(struct Consumer* receiver)
+int ReceiveFileFragment(struct Consumer* receiver)
 {
     if (receiver == NULL) {
         printf("receiver is not valid\n");
@@ -73,7 +78,21 @@ int ReceiveFile(struct Consumer* receiver)
     int bytes = 0;
     struct Packet* packet = ReceivePacket(receiver);
     if (packet != NULL) {
-        bytes = fwrite(packet->buffer_, 1, packet->data_len_, receiver->file_);
+        if (receiver->next_seq_number_ < packet->seq_number_) {
+            printf("%s: expected %d, received %d fragment\n", __FUNCTION__, receiver->next_seq_number_, packet->seq_number_);
+            receiver->channel_->nack_handler_(receiver->channel_, receiver->next_seq_number_);
+        } else {
+            if (receiver->next_seq_number_ - packet->seq_number_ > 1) {
+                printf("%s: ignoring packet duplication of %d frame\n", __FUNCTION__, packet->seq_number_);
+            } else {
+                printf("%s: consumed %d packet\n", __FUNCTION__, receiver->next_seq_number_);
+                bytes = fwrite(packet->buffer_, 1, packet->data_len_, receiver->file_);
+                receiver->next_seq_number_ = packet->seq_number_ + 1;
+            }
+
+            receiver->channel_->ack_handler_(receiver->channel_, packet->seq_number_);
+        }
+
         free(packet);
     }
 
