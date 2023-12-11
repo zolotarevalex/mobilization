@@ -172,9 +172,11 @@ struct Packet* ConsumePacket(struct Channel* channel)
     if (packet_loss_rate <= channel->packet_loss_) {
         //we don't want to drop the packet one more time
         //that will lead to an infinite loop
-        if (packet->seq_number_ > channel->packet_received_) {
+        static int last_dropped = 0;
+        if (packet->seq_number_ != last_dropped) {
             printf("channel is not able to deliver the packet, dropping %d packet...\n", packet->seq_number_);
             printf("packet loss %f with packets sent %d, dropped %d\n", packet_loss_rate, channel->packet_sent_, packets_dropped);
+            last_dropped = packet->seq_number_;
             FreePacket(channel, packet);
             return NULL;
         }
