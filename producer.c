@@ -4,6 +4,8 @@
 #include <assert.h>
 
 
+static const int MAX_WAIT_TIME = 10;
+
 struct Producer* InitProducer(struct Channel* channel, const char* file_name)
 {
     if (channel == NULL) {
@@ -43,7 +45,7 @@ struct Producer* InitProducer(struct Channel* channel, const char* file_name)
 
     producer->channel_->data_len_ = producer->bytes_left_; 
     producer->next_fragment_ = NULL;
-    producer->missed_fragment_ = NULL;
+    producer->lost_fragments_ = NULL;
     producer->fragment_seq_number_ = 0;
 
     channel->sender_ = producer;
@@ -71,7 +73,7 @@ void CloseProducer(struct Producer* producer)
         fragment = next;
     }
 
-    fragment = producer->missed_fragment_;
+    fragment = producer->lost_fragments_;
     while(fragment) {
         struct Fragment* next = fragment->next_;
         free(fragment);
@@ -88,19 +90,19 @@ struct Fragment* GetNewFragment(int len, int seq_number, int file_offset)
         fragment->seq_number_ = seq_number;
         fragment->next_ = NULL;
         fragment->file_offset_ = file_offset;
+        fragment->ts_ = time(NULL);
     }
 
     return fragment;
 }
 
-struct Fragment* GetFragment(struct Producer* producer, int fragment_seq_number)
+struct Fragment* GetFragment(struct Fragment* fragment, int fragment_seq_number)
 {
-    if (producer == NULL) {
-        printf("%s, producer is not valid\n", __FUNCTION__);
+    if (fragment == NULL) {
+        printf("%s, fragment is not valid\n", __FUNCTION__);
         return NULL;
     }
 
-    struct Fragment* fragment = producer->next_fragment_;
     while(fragment) {
         if (fragment->seq_number_ == fragment_seq_number) {
             return fragment;
@@ -108,7 +110,7 @@ struct Fragment* GetFragment(struct Producer* producer, int fragment_seq_number)
         fragment = fragment->next_;
     }
 
-    printf("%s: failed to find %d fragment\n", __FUNCTION__, fragment_seq_number);
+    // printf("%s: failed to find %d fragment\n", __FUNCTION__, fragment_seq_number);
     return NULL;
 }
 
@@ -132,6 +134,7 @@ struct Fragment* FreeFragment(struct Producer* producer, int fragment_seq_number
             fragment->next_ = NULL;
             return fragment;
         }
+
         prev_fragment = fragment;
         fragment = fragment->next_;
     }
@@ -165,7 +168,7 @@ void HandleFragmentAck(struct Channel* channel, int fragment_seq_number)
     free(FreeFragment(channel->sender_, fragment_seq_number));
 }
 
-void HandleFragmentNAck(struct Channel* channel, int fragment_seq_number)
+void HandleFragmentNAck(struct Channel* channel, int seq_number_start, int seq_number_end)
 {
     if (channel == NULL) {
         printf("%s: channel is not valid\n", __FUNCTION__);
@@ -176,22 +179,19 @@ void HandleFragmentNAck(struct Channel* channel, int fragment_seq_number)
         printf("%s: producer is not valid\n", __FUNCTION__);
         return;
     }
-
-    // struct Fragment* fragment = FreeFragment(channel->sender_, fragment_seq_number);
-    // if (fragment != NULL) {
-    //     struct Fragment* to_resend = GetNewFragment(fragment->len_, fragment->seq_number_, fragment->file_offset_);
-    //     if (to_resend == NULL) {
-    //         printf("%s: failed to clone %d fragment\n", __FUNCTION__, fragment->seq_number_);
-    //     } else {
-    //         to_resend->next_ = channel->sender_->missed_fragment_;
-    //         channel->sender_->missed_fragment_ = to_resend;
-    //         printf("%s: adding %d fragment to resend queue\n", __FUNCTION__, fragment->seq_number_);
-    //     }
-    //     fragment->next_ = channel->sender_->next_fragment_;
-    //     channel->sender_->next_fragment_ = fragment; 
-    // } else {
-    //     printf("%s: failed to handle packet drop, %d frame not found\n", __FUNCTION__, fragment_seq_number);
-    // }
+    
+    struct Fragment* fragment = GetFragment(channel->sender_->next_fragment_, seq_number_end);
+    while (fragment && fragment->seq_number_ >= seq_number_start) {
+        struct Fragment* to_resend = CloneFragment(fragment);
+        if (to_resend == NULL) {
+            printf("%s: failed to clone %d fragment\n", __FUNCTION__, fragment->seq_number_);
+        } else {
+            to_resend->next_ = channel->sender_->lost_fragments_;
+            channel->sender_->lost_fragments_ = to_resend;
+            printf("%s: adding %d fragment to resend queue\n", __FUNCTION__, fragment->seq_number_);
+        }
+        fragment = fragment->next_;      
+    }
 }
 
 BOOL ResendFragment(struct Producer* producer, struct Fragment* fragment)
@@ -211,6 +211,8 @@ BOOL ResendFragment(struct Producer* producer, struct Fragment* fragment)
         rc = FALSE;
     }
 
+    fragment->ts_  = time(NULL);
+
     fseek(producer->file_, current_pos, SEEK_SET);
     return rc;
 }
@@ -228,15 +230,20 @@ int SendFileFragment(struct Producer* producer)
     }
     
     if (TryMakeChannelReady(producer->channel_)) {
-        if (producer->next_fragment_ != NULL) {
-            ResendFragment(producer, producer->next_fragment_);
-        } else {
+        if (producer->lost_fragments_ != NULL) {
+            struct Fragment* fragment = producer->lost_fragments_;
+            printf("%s: re-sending %d fragment\n", __FUNCTION__, fragment->seq_number_);
+            if (ResendFragment(producer, fragment)) {
+                producer->lost_fragments_ = fragment->next_;
+                free(fragment);
+            }
+        } else if (producer->bytes_left_ > 0)  {
             struct Fragment* fragment = GetNewFragment(producer->channel_->max_packet_len_, producer->fragment_seq_number_, ftell(producer->file_));
 
             if (fragment == NULL) {
                 printf("%s: not able to allocate fragment\n", __FUNCTION__);
-                printf("%s, channel->data_len_: %d, channel->bytes_sent_: %d, channel->bytes_received_: %d\n", 
-                        __FUNCTION__, producer->channel_->data_len_, producer->channel_->bytes_sent_, producer->channel_->bytes_received_);
+                printf("%s, channel->data_len_: %d, channel->bytes_received_: %d\n", 
+                        __FUNCTION__, producer->channel_->data_len_, producer->channel_->bytes_received_);
                 return 0;
             }
 
@@ -255,11 +262,30 @@ int SendFileFragment(struct Producer* producer)
             } else {
                 fseek(producer->file_, fragment->file_offset_, SEEK_SET);
                 free(fragment);
-            }    
+            } 
+        } else {
+            if (producer->next_fragment_ != NULL) {
+                struct Fragment* fragment = producer->next_fragment_;
+
+                if (time(NULL) - fragment->ts_ > MAX_WAIT_TIME) {
+                    printf("%s: re-sending %d fragment\n", __FUNCTION__, fragment->seq_number_);
+                    ResendFragment(producer, fragment);
+                }
+            }
         }
     } else {
         printf("%s: channel is not ready\n", __FUNCTION__);
     }
 
     return producer->bytes_left_;
+}
+
+BOOL AllPacketsReceived(struct Producer* producer)
+{
+    if (producer == NULL) {
+        printf("%s: producer is not valid\n", __FUNCTION__);
+        return 0;
+    }
+
+    return producer->bytes_left_ == 0 && producer->next_fragment_ == NULL && producer->lost_fragments_ == NULL;
 }

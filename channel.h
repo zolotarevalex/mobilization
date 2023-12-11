@@ -14,10 +14,6 @@ typedef int BOOL;
 struct Consumer;
 struct Producer;
 
-
-// typedef void (*ack_handler)(int) FrameAckHandler;
-// typedef void (*nack_handler)(int) FrameNAckHandler;
-
 struct Packet
 {
     struct Packet* next_;
@@ -50,6 +46,12 @@ struct Channel
 {
     BOOL ready_;
 
+    BOOL enable_packet_delay_;
+
+    BOOL enable_packet_loss_;
+
+    BOOL enable_random_rate_;
+
     //total size of data to be transfered
     int data_len_;
 
@@ -61,9 +63,6 @@ struct Channel
 
     //bytes sent per second, used to measure instant rate
     int bits_sent_per_second_;
-
-    //total amount of bytes sent
-    int bytes_sent_;
 
     //bytes received by the consumer
     int bytes_received_;
@@ -91,7 +90,7 @@ struct Channel
     void (*ack_handler_)(struct Channel*,int);
 
     //handler to notify producer about lost frame
-    void (*nack_handler_)(struct Channel*,int);
+    void (*nack_handler_)(struct Channel*,int, int);
 
     //
     struct Producer* sender_;
@@ -108,17 +107,17 @@ struct Channel
     struct Packet* sent_tail_;
 };
 
-struct Packet* InitPacket(int len);
-void ResetPacket(struct Packet* packet, int len);
+struct Packet* InitPacket(int len, BOOL enable_delay);
+void ResetPacket(struct Packet* packet, int len, BOOL enable_delay);
 struct Packet* ClonePacket(struct Packet* packet);
 struct Packet* AddPacket(struct Channel* channel, const char* buffer, int len, int seq_number);
 void FreePacket(struct Channel* channel, struct Packet* packet);
 struct Packet* ConsumePacket(struct Channel* channel);
 struct Channel* InitChannel(int max_packets, int packet_len, float packet_loss);
+void ResetChannel(struct Channel* channel);
 void CloseChannel(struct Channel* channel);
 BOOL IsChannelReady(struct Channel* channel);
 BOOL TryMakeChannelReady(struct Channel* channel);
 int GetInstantRate();
-BOOL AllPacketsReceived(struct Channel* channel);
 
 #endif

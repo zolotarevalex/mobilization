@@ -16,9 +16,13 @@ int main(int argc, char* argv[])
     int packet_len = 1024;
     float packet_loss = 0.1;
 
-    if (argc < 6) {
+    BOOL enable_packet_delay = TRUE;
+    BOOL enable_packet_loss = TRUE;
+    BOOL enable_random_rate = TRUE;
+
+    if (argc < 8) {
         printf("too few arguments.\n");
-        printf("usage: %s <packet_pool_size> <packet_len> <packet_loss> <input_file> <output_file>\n", argv[0]);
+        printf("usage: %s <packet_pool_size> <packet_len> <packet_loss> <enable rand rate> <enable delay> <input_file> <output_file>\n", argv[0]);
         return 0;
     }
 
@@ -46,20 +50,41 @@ int main(int argc, char* argv[])
         char* end = NULL;
         float packet_loss_arg = strtof(argv[3], &end);
         if (packet_loss_arg == 0) {
-            printf("packet_loss_arg is not valid, using default value %f\n", packet_loss);
+            enable_packet_loss = FALSE;
         } else {
             packet_loss = packet_loss_arg;
         }
     }
 
-    const char* in_file_name = argv[4];
-    const char* out_file_name = argv[5];
+    {
+        char* end = NULL;
+        float traffic_rate_arg = strtol(argv[4], &end, 10);
+        if (traffic_rate_arg == 0) {
+            enable_random_rate = FALSE;
+        }
+    }
+
+    {
+        char* end = NULL;
+        float packet_delay_arg = strtol(argv[4], &end, 10);
+        if (packet_delay_arg == 0) {
+            enable_packet_delay = FALSE;
+        }
+    }
+
+    const char* in_file_name = argv[6];
+    const char* out_file_name = argv[7];
 
     printf("starting simulation with packet_pool: %d, packet_len: %d, packet_loss: %f\n", packet_pool, packet_len,packet_loss );
+
 
     struct Channel* channel = InitChannel(packet_pool, packet_len, packet_loss);
     struct Producer* producer = InitProducer(channel, in_file_name);
     struct Consumer* consumer = InitConsumer(channel, out_file_name);
+
+    channel->enable_packet_delay_ = enable_packet_delay;
+    channel->enable_packet_loss_ = enable_packet_loss;
+    channel->enable_random_rate_ = enable_random_rate;
 
     time_t start_ts = time(NULL);
 
@@ -75,7 +100,7 @@ int main(int argc, char* argv[])
         }
 
         // sleep(1);
-    } while (!AllPacketsReceived(channel));
+    } while (!AllPacketsReceived(producer));
 
     time_t end_ts = time(NULL);
 

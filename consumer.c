@@ -70,17 +70,13 @@ int ReceiveFileFragment(struct Consumer* receiver)
         return 0;
     }
 
-    if (AllPacketsReceived(receiver->channel_)) {
-        printf("all fragments received\n");
-        return 0;
-    }
-
     int bytes = 0;
     struct Packet* packet = ReceivePacket(receiver);
     if (packet != NULL) {
         if (receiver->next_seq_number_ < packet->seq_number_) {
             printf("%s: expected %d, received %d fragment\n", __FUNCTION__, receiver->next_seq_number_, packet->seq_number_);
-            receiver->channel_->nack_handler_(receiver->channel_, receiver->next_seq_number_);
+            receiver->channel_->nack_handler_(receiver->channel_, receiver->next_seq_number_, packet->seq_number_);
+            ResetChannel(receiver->channel_);
         } else {
             if (receiver->next_seq_number_ - packet->seq_number_ > 1) {
                 printf("%s: ignoring packet duplication of %d frame\n", __FUNCTION__, packet->seq_number_);
