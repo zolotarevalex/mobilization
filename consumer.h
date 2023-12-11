@@ -11,12 +11,13 @@ struct Consumer
 {
     struct Channel* channel_;
     FILE* file_; 
+    int next_seq_number_;
 };
 
 struct Consumer* InitConsumer(struct Channel* channel, const char* file_name);
 void CloseConsumer(struct Consumer* consumer);
 struct Packet* ReceivePacket(struct Consumer* receiver);
-int ReceiveFile(struct Consumer* receiver);
+int ReceiveFileFragment(struct Consumer* receiver);
 
 
 #endif
