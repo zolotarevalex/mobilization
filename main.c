@@ -17,7 +17,7 @@ int main(int argc, char* argv[])
     float packet_loss = 0.1;
 
     BOOL enable_packet_delay = TRUE;
-    BOOL enable_packet_loss = TRUE;
+    BOOL enable_packet_loss = TRUE; 
     BOOL enable_random_rate = TRUE;
 
     if (argc < 8) {
@@ -66,7 +66,7 @@ int main(int argc, char* argv[])
 
     {
         char* end = NULL;
-        float packet_delay_arg = strtol(argv[4], &end, 10);
+        float packet_delay_arg = strtol(argv[5], &end, 10);
         if (packet_delay_arg == 0) {
             enable_packet_delay = FALSE;
         }
@@ -91,7 +91,7 @@ int main(int argc, char* argv[])
     do {
         int bytes_left = SendFileFragment(producer);
         if (bytes_left > 0) {
-            printf("bytes left %d\n", bytes_left);
+            // printf("bytes left %d\n", bytes_left);
         }
         
         int bytes_received = ReceiveFileFragment(consumer);
@@ -103,16 +103,6 @@ int main(int argc, char* argv[])
     } while (!AllPacketsReceived(producer));
 
     time_t end_ts = time(NULL);
-
-    int fragments_left = 0;
-    struct Fragment* fragment = producer->next_fragment_;
-    while (fragment)
-    {
-        fragment = fragment->next_;
-        fragments_left++;
-    }
-    
-    printf("fragments left: %d\n", fragments_left);
 
     CloseConsumer(consumer);
     CloseProducer(producer);

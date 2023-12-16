@@ -6,10 +6,7 @@
 #include <stdio.h>
 #include <time.h>
 
-typedef int BOOL;
-
-#define TRUE 1
-#define FALSE 0
+#include "util.h"
 
 struct Consumer;
 struct Producer;
@@ -52,29 +49,14 @@ struct Channel
 
     BOOL enable_random_rate_;
 
-    //total size of data to be transfered
-    int data_len_;
-
-    //packets sent
-    int packet_sent_;
-
-    //packets received
-    int packet_received_;
-
     //bytes sent per second, used to measure instant rate
     int bits_sent_per_second_;
-
-    //bytes received by the consumer
-    int bytes_received_;
 
     //buffer size to store single packet
     int max_packet_len_;
 
     //timestamp to measure rate (updeted each second)
     time_t ts_;
-
-    //expected packet loss rate
-    float packet_loss_;
 
     //bits per sec for simulation, calculated each second
     int traffic_rate_;
@@ -90,7 +72,7 @@ struct Channel
     void (*ack_handler_)(struct Channel*,int);
 
     //handler to notify producer about lost frame
-    void (*nack_handler_)(struct Channel*,int, int);
+    void (*seq_num_mismatch_handler_)(struct Channel*,int, int);
 
     //
     struct Producer* sender_;
@@ -105,6 +87,14 @@ struct Channel
     struct Packet* sent_;
 
     struct Packet* sent_tail_;
+
+//=================packet drop simulatin section================
+    //depends on expected loss rate (rate * 10)
+    int drop_threshold_;
+
+    //helps to define packet to drop
+    int drop_count_;
+//===============================================================
 };
 
 struct Packet* InitPacket(int len, BOOL enable_delay);
@@ -118,6 +108,6 @@ void ResetChannel(struct Channel* channel);
 void CloseChannel(struct Channel* channel);
 BOOL IsChannelReady(struct Channel* channel);
 BOOL TryMakeChannelReady(struct Channel* channel);
-int GetInstantRate();
+int GetInstantRate(struct Channel* channel);
 
 #endif

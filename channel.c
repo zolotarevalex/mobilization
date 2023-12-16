@@ -23,9 +23,9 @@ void ResetPacket(struct Packet* packet, int len, BOOL enable_delay)
         packet->seq_number_ = 0;
         packet->ts_ = time(NULL);
 
-        if (enable_delay){
-            BOOL need_delay = rand() % 11 == 0;
-            packet->delay_ = need_delay ? rand() % MAX_DELAY : 0;
+        if (enable_delay) {
+            // packet->delay_ = rand() % MAX_DELAY;
+            packet->delay_ = MAX_DELAY;
         } else {
             packet->delay_ = 0;
         }
@@ -76,7 +76,7 @@ struct Packet* AddPacket(struct Channel* channel, const char* buffer, int len, i
             return NULL;
         }
 
-        printf("allocating new buffer\n");
+        // printf("allocating new buffer\n");
         channel->free_ = InitPacket(len, channel->enable_packet_delay_);
     }
 
@@ -107,13 +107,6 @@ struct Packet* AddPacket(struct Channel* channel, const char* buffer, int len, i
     
     packet->data_len_ = len;
     packet->seq_number_ = seq_number;
-
-    //we don't want to take ito account packets being re-sent
-    if (channel->packet_sent_ >= seq_number) {
-        channel->packet_sent_++;
-    } else {
-        printf("%s: unexpected seq num, expected %d, received %d\n", __FUNCTION__, channel->packet_sent_, seq_number);
-    }
 
     return channel->sent_;
 }
@@ -164,30 +157,22 @@ struct Packet* ConsumePacket(struct Channel* channel)
     struct Packet* packet = channel->sent_tail_;
     time_t time_diff = time(NULL) - packet->ts_;
     if (time_diff < packet->delay_) {
-        printf("%s: need to delay packet: time passed %ld, %d delay, packet: %d\n", __FUNCTION__, time_diff, packet->delay_, packet->seq_number_);
+        // printf("%s: need to delay packet: time passed %ld, %d delay, packet: %d\n", __FUNCTION__, time_diff, packet->delay_, packet->seq_number_);
         return NULL;
     }
 
     if (channel->enable_packet_loss_) {
-        int packets_dropped = channel->packet_sent_ - channel->packet_received_ ;
-        float packet_loss_rate = (float)packets_dropped / channel->packet_sent_;
+        BOOL need_to_drop = (channel->drop_count_++ < channel->drop_threshold_);
+        if (channel->drop_count_ == 100) {
+            channel->drop_count_ = 0;
+        }
 
-        if (packet_loss_rate <= channel->packet_loss_) {
-            //we don't want to drop the packet one more time
-            //that will lead to an infinite loop
-            static int last_dropped = -1;
-            if (packet->seq_number_ > last_dropped) {
-                printf("channel is not able to deliver the packet, dropping %d packet...\n", packet->seq_number_);
-                printf("packet loss %f with packets sent %d, dropped %d\n", packet_loss_rate, channel->packet_sent_, packets_dropped);
-                last_dropped = packet->seq_number_;
-                FreePacket(channel, packet);
-                return NULL;
-            }
+        if (need_to_drop) {
+            printf("channel is not able to deliver the packet, dropping %d packet...\n", packet->seq_number_);
+            FreePacket(channel, packet);
+            return NULL;
         }
     }
-
-    channel->packet_received_++;
-    channel->bytes_received_ += packet->data_len_;
 
     struct Packet* clone = ClonePacket(packet);
     FreePacket(channel, packet);
@@ -205,17 +190,12 @@ struct Channel* InitChannel(int max_packets, int packet_len, float packet_loss)
         channel->enable_packet_loss_ = TRUE;
         channel->enable_random_rate_ = TRUE;
         channel->max_packets_ = max_packets;
-        channel->data_len_ = 0;
-        channel->packet_sent_ = 0;
-        channel->packet_received_ = 0;
         channel->bits_sent_per_second_ = 0;
-        channel->bytes_received_ = 0;
         channel->max_packet_len_ = packet_len;
         channel->ts_ = time(NULL);
-        channel->packet_loss_ = packet_loss;
         channel->traffic_rate_ = GetInstantRate(channel);
         channel->ack_handler_ = NULL;
-        channel->nack_handler_ = NULL;
+        channel->seq_num_mismatch_handler_ = NULL;
         channel->sender_ = NULL;
         channel->receiver_ = NULL;
         // channel->policy_ = NO_REALLOC;
@@ -225,6 +205,8 @@ struct Channel* InitChannel(int max_packets, int packet_len, float packet_loss)
         for (int i = 0; i < max_packets; i++) {
             FreePacket(channel, InitPacket(channel->max_packet_len_, channel->enable_packet_delay_));
         }
+        channel->drop_threshold_ = packet_loss * 100;
+        channel->drop_count_ = 0;
     }
     return channel;
 }
