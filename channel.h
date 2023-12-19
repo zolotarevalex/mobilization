@@ -11,6 +11,12 @@
 struct Consumer;
 struct Producer;
 
+enum DeliveryState {
+    OTHER = 0,
+    SENT,
+    DELIVERED
+};
+
 struct Packet
 {
     struct Packet* next_;
@@ -28,15 +34,11 @@ struct Packet
     //actual data size
     int data_len_;
 
-    //buffer size
-    int len_;
-    char buffer_[];
-};
+    char* buffer_;
 
-enum AllocPolicy
-{
-    REALLOC,
-    NO_REALLOC
+    enum DeliveryState state_;
+
+    int resend_count_;
 };
 
 struct Channel
@@ -61,13 +63,6 @@ struct Channel
     //bits per sec for simulation, calculated each second
     int traffic_rate_;
 
-    //allocation policy. defines behavior behavoir of the channel
-    //for the case when there is no beuffer left to store new packet 
-    enum AllocPolicy policy_;
-
-    //number of available buffers to store packets
-    int max_packets_;
-
     //handler to notify producer about frame delivery
     void (*ack_handler_)(struct Channel*,int);
 
@@ -80,11 +75,8 @@ struct Channel
     //
     struct Consumer* receiver_; 
 
-    //list of free buffers ready to store new packet
-    struct Packet* free_;
-
     //list of buffers with packets being sent
-    struct Packet* sent_;
+    struct Packet* sent_head_;
 
     struct Packet* sent_tail_;
 
@@ -95,16 +87,18 @@ struct Channel
     //helps to define packet to drop
     int drop_count_;
 //===============================================================
+
+    //total number of fragments to bedelivered
+    int fragments_total_count_;
+    //buf to avoid duplications
+    struct Packet* packet_reasm_buf_;
 };
 
-struct Packet* InitPacket(int len, BOOL enable_delay);
-void ResetPacket(struct Packet* packet, int len, BOOL enable_delay);
 struct Packet* ClonePacket(struct Packet* packet);
 struct Packet* AddPacket(struct Channel* channel, const char* buffer, int len, int seq_number);
-void FreePacket(struct Channel* channel, struct Packet* packet);
+void FreePacket(struct Channel* channel, struct Packet* packet, enum DeliveryState state);
 struct Packet* ConsumePacket(struct Channel* channel);
-struct Channel* InitChannel(int max_packets, int packet_len, float packet_loss);
-void ResetChannel(struct Channel* channel);
+struct Channel* InitChannel(int packet_len, float packet_loss);
 void CloseChannel(struct Channel* channel);
 BOOL IsChannelReady(struct Channel* channel);
 BOOL TryMakeChannelReady(struct Channel* channel);

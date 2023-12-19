@@ -78,7 +78,7 @@ int main(int argc, char* argv[])
     printf("starting simulation with packet_pool: %d, packet_len: %d, packet_loss: %f\n", packet_pool, packet_len,packet_loss );
 
 
-    struct Channel* channel = InitChannel(packet_pool, packet_len, packet_loss);
+    struct Channel* channel = InitChannel(packet_len, packet_loss);
     struct Producer* producer = InitProducer(channel, in_file_name);
     struct Consumer* consumer = InitConsumer(channel, out_file_name);
 
