@@ -24,8 +24,8 @@ void ResetPacket(struct Packet* packet, int len, BOOL enable_delay)
         packet->ts_ = time(NULL);
 
         if (enable_delay) {
-            // packet->delay_ = rand() % MAX_DELAY;
-            packet->delay_ = MAX_DELAY;
+            packet->delay_ = rand() % MAX_DELAY;
+            // packet->delay_ = MAX_DELAY;
         } else {
             packet->delay_ = 0;
         }
