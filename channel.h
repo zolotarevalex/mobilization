@@ -95,7 +95,7 @@ struct Channel
 };
 
 struct Packet* ClonePacket(struct Packet* packet);
-struct Packet* AddPacket(struct Channel* channel, const char* buffer, int len, int seq_number);
+BOOL AddPacket(struct Channel* channel, const char* buffer, int len, int seq_number);
 void FreePacket(struct Channel* channel, struct Packet* packet, enum DeliveryState state);
 struct Packet* ConsumePacket(struct Channel* channel);
 struct Channel* InitChannel(int packet_len, float packet_loss);

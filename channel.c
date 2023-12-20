@@ -27,22 +27,22 @@ struct Packet* ClonePacket(struct Packet* packet)
     return clone;
 }
 
-struct Packet* AddPacket(struct Channel* channel, const char* buffer, int len, int seq_number)
+BOOL AddPacket(struct Channel* channel, const char* buffer, int len, int seq_number)
 {
     if (channel == NULL) {
         printf("channel is NULL\n");
-        return NULL;
+        return FALSE;
     }
 
     if (buffer == NULL) {
         printf("packet is not valid\n");
-        return NULL;
+        return FALSE;
     }
 
     if (len == 0) {
         printf("packet len is not valid\n");
         assert(0);
-        return NULL;
+        return FALSE;
     }
 
     TryMakeChannelReady(channel);
@@ -50,7 +50,7 @@ struct Packet* AddPacket(struct Channel* channel, const char* buffer, int len, i
     if (channel->bits_sent_per_second_ > channel->traffic_rate_) {
         printf("decreasing bitrate, bits sent: %d, current rate: %d\n", channel->bits_sent_per_second_, channel->traffic_rate_);
         channel->ready_ = FALSE;
-        return NULL;
+        return FALSE;
     }
 
     if (channel->packet_reasm_buf_ == NULL) {
@@ -61,6 +61,18 @@ struct Packet* AddPacket(struct Channel* channel, const char* buffer, int len, i
     }
 
     assert(channel->fragments_total_count_ > seq_number);
+
+    if (channel->enable_packet_loss_) {
+        BOOL need_to_drop = (channel->drop_count_++ < channel->drop_threshold_);
+        if (channel->drop_count_ == 100) {
+            channel->drop_count_ = 0;
+        }
+
+        if (need_to_drop) {
+            printf("channel is not able to deliver the packet, dropping %d packet...\n", seq_number);
+            return TRUE;
+        }
+    }
 
     struct Packet* packet = &channel->packet_reasm_buf_[seq_number];
 
@@ -90,7 +102,7 @@ struct Packet* AddPacket(struct Channel* channel, const char* buffer, int len, i
             channel->sent_tail_ = packet;
         }
 
-        printf("%s: changing list structure for %d fragment\n", __FUNCTION__, seq_number);
+        // printf("%s: changing list structure for %d fragment\n", __FUNCTION__, seq_number);
     } else {
         printf("%s, attempt ot send a copy of %d fragment\n", __FUNCTION__, seq_number);
         packet->resend_count_++;
@@ -98,7 +110,7 @@ struct Packet* AddPacket(struct Channel* channel, const char* buffer, int len, i
 
     channel->bits_sent_per_second_ += len*8;
 
-    return packet;
+    return TRUE;
 }
 
 void FreePacket(struct Channel* channel, struct Packet* packet, enum DeliveryState state)
@@ -148,23 +160,10 @@ struct Packet* ConsumePacket(struct Channel* channel)
 
     struct Packet* packet = channel->sent_head_;
 
-    if (channel->enable_packet_loss_) {
-        BOOL need_to_drop = (channel->drop_count_++ < channel->drop_threshold_);
-        if (channel->drop_count_ == 100) {
-            channel->drop_count_ = 0;
-        }
-
-        if (need_to_drop) {
-            printf("channel is not able to deliver the packet, dropping %d packet...\n", packet->seq_number_);
-            FreePacket(channel, packet, OTHER);
-            return NULL;
-        }
-    }
-
     time_t ts = time(NULL);
     time_t time_diff = ts - packet->ts_;
     if (time_diff < packet->delay_) {
-        printf("%s: need to delay packet: time passed %ld, %d delay, packet: %d, ts: %ld\n", __FUNCTION__, time_diff, packet->delay_, packet->seq_number_, ts);
+        // printf("%s: need to delay packet: time passed %ld, %d delay, packet: %d, ts: %ld\n", __FUNCTION__, time_diff, packet->delay_, packet->seq_number_, ts);
         return NULL;
     }
 
