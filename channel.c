@@ -8,110 +8,112 @@
 
 static const int MAX_DELAY = 5;
 
-struct Packet* InitPacket(int len, BOOL enable_delay)
-{
-    struct Packet* packet = malloc(sizeof(struct Packet) + len);
-    ResetPacket(packet, len, enable_delay);
-    return packet;
-}
-
-void ResetPacket(struct Packet* packet, int len, BOOL enable_delay)
-{
-    if (packet != NULL) {
-        packet->next_ = NULL;
-        packet->prev_ = NULL;
-        packet->seq_number_ = 0;
-        packet->ts_ = time(NULL);
-
-        if (enable_delay) {
-            packet->delay_ = rand() % MAX_DELAY;
-            // packet->delay_ = MAX_DELAY;
-        } else {
-            packet->delay_ = 0;
-        }
-        
-        packet->data_len_ = 0;
-        packet->len_ = len;
-        memset(packet->buffer_, 0, len);
-    }
-}
-
 struct Packet* ClonePacket(struct Packet* packet)
 {
-    struct Packet* clone = InitPacket(packet->len_, packet->delay_);
-    if (clone != NULL) {
-        memcpy(clone->buffer_, packet->buffer_, packet->len_);
-        clone->data_len_ = packet->data_len_;
-        clone->ts_ = packet->ts_;
-        clone->delay_ = packet->delay_;
-        clone->seq_number_ = packet->seq_number_;
-    }
+    assert(packet != NULL);
+    assert(packet->buffer_ != NULL);
+    struct Packet* clone = malloc(sizeof(struct Packet));
+    memset(clone, 0, sizeof(struct Packet*));
+    assert(clone != NULL);
+    clone->buffer_ = malloc(packet->data_len_);
+    assert(clone->buffer_ != NULL);
+    memcpy(clone->buffer_, packet->buffer_, packet->data_len_);
+    clone->data_len_ = packet->data_len_;
+    clone->ts_ = packet->ts_;
+    clone->delay_ = packet->delay_;
+    clone->seq_number_ = packet->seq_number_;
+    clone->state_ = packet->state_;
+    clone->resend_count_ = packet->resend_count_;
     return clone;
 }
 
-struct Packet* AddPacket(struct Channel* channel, const char* buffer, int len, int seq_number)
+BOOL AddPacket(struct Channel* channel, const char* buffer, int len, int seq_number)
 {
     if (channel == NULL) {
         printf("channel is NULL\n");
-        return NULL;
+        return FALSE;
     }
 
     if (buffer == NULL) {
         printf("packet is not valid\n");
-        return NULL;
+        return FALSE;
     }
 
     if (len == 0) {
         printf("packet len is not valid\n");
         assert(0);
-        return NULL;
+        return FALSE;
     }
 
     TryMakeChannelReady(channel);
 
-    if (channel->free_ == NULL) {
-        if (channel->policy_ == NO_REALLOC) {
-            printf("no space left for the packet\n");
-            channel->ready_ = FALSE;
-            return NULL;
-        }
-
-        // printf("allocating new buffer\n");
-        channel->free_ = InitPacket(len, channel->enable_packet_delay_);
-    }
-
     if (channel->bits_sent_per_second_ > channel->traffic_rate_) {
         printf("decreasing bitrate, bits sent: %d, current rate: %d\n", channel->bits_sent_per_second_, channel->traffic_rate_);
         channel->ready_ = FALSE;
-        return NULL;
+        return FALSE;
+    }
+
+    if (channel->packet_reasm_buf_ == NULL) {
+        size_t size = sizeof(struct Packet)*channel->fragments_total_count_;
+        channel->packet_reasm_buf_ = malloc(size);
+        assert(channel->packet_reasm_buf_ != NULL);
+        memset(channel->packet_reasm_buf_, 0, size);
+    }
+
+    assert(channel->fragments_total_count_ > seq_number);
+
+    if (channel->enable_packet_loss_) {
+        BOOL need_to_drop = (channel->drop_count_++ < channel->drop_threshold_);
+        if (channel->drop_count_ == 100) {
+            channel->drop_count_ = 0;
+        }
+
+        if (need_to_drop) {
+            printf("channel is not able to deliver the packet, dropping %d packet...\n", seq_number);
+            return TRUE;
+        }
+    }
+
+    struct Packet* packet = &channel->packet_reasm_buf_[seq_number];
+
+    if (packet->state_ == OTHER) {
+        packet->data_len_ = len;
+        packet->seq_number_ = seq_number;
+        if (channel->enable_packet_delay_) {
+            packet->delay_ = rand() % MAX_DELAY;
+        } else {
+            packet->delay_ = 0;
+        }
+        packet->ts_ = time(NULL);
+        packet->buffer_ = malloc(packet->data_len_);
+        assert(packet->buffer_ != NULL);
+        memcpy(packet->buffer_, buffer, packet->data_len_);
+        packet->next_ = NULL;
+        packet->prev_ = NULL;
+        packet->state_ = SENT;
+        packet->resend_count_ = 0;
+
+        if (channel->sent_head_ == NULL) {
+            channel->sent_head_ = packet;
+            channel->sent_tail_ = packet;
+        } else {
+            channel->sent_tail_->next_ = packet;
+            packet->prev_ = channel->sent_tail_;
+            channel->sent_tail_ = packet;
+        }
+
+        // printf("%s: changing list structure for %d fragment\n", __FUNCTION__, seq_number);
+    } else {
+        packet->resend_count_++;
+        printf("%s, attempt ot send a copy of %d fragment, already sent %d times\n", __FUNCTION__, seq_number, packet->resend_count_);
     }
 
     channel->bits_sent_per_second_ += len*8;
 
-    struct Packet* packet = channel->free_;
-    struct Packet* free_head = packet->next_;
-    channel->free_ = free_head;
-
-    ResetPacket(packet, packet->len_, channel->enable_packet_delay_);
-
-    if (channel->sent_ != NULL) {
-        packet->next_ = channel->sent_;
-        channel->sent_->prev_ = packet;      
-    } else {
-        channel->sent_tail_ = packet;
-    }
-
-    channel->sent_ = packet;
-
-    memcpy(packet->buffer_, buffer, min(len, packet->len_));
-    
-    packet->data_len_ = len;
-    packet->seq_number_ = seq_number;
-
-    return channel->sent_;
+    return TRUE;
 }
 
-void FreePacket(struct Channel* channel, struct Packet* packet)
+void FreePacket(struct Channel* channel, struct Packet* packet, enum DeliveryState state)
 {
     if (channel == NULL) {
         printf("channel is NULL\n");
@@ -123,23 +125,25 @@ void FreePacket(struct Channel* channel, struct Packet* packet)
         return;
     }
 
-    if (packet == channel->sent_tail_) {
-        channel->sent_tail_ = packet->prev_;
+    assert(packet->seq_number_ < channel->fragments_total_count_);
+    assert(&channel->packet_reasm_buf_[packet->seq_number_] == packet);
+
+    assert(packet == channel->sent_head_);
+
+    if (packet == channel->sent_head_) {
+        channel->sent_head_ = packet->next_;
     }
 
-    if (packet == channel->sent_) {
-        channel->sent_ = NULL;
+    if (channel->sent_head_ == NULL) {
+        channel->sent_tail_ = NULL;
     }
 
-    if (channel->sent_tail_ != NULL) {
-        channel->sent_tail_->next_ = NULL;
-    }
-
-    ResetPacket(packet, packet->len_, channel->enable_packet_delay_);
-
-    packet->next_ = channel->free_;
-    channel->free_ = packet;
-    channel->ready_ = TRUE;
+    free(packet->buffer_);
+    packet->buffer_ = NULL;
+    packet->state_ = state;
+    packet->next_ = NULL;
+    packet->prev_ = NULL;
+    packet->resend_count_ = 0;
 }
 
 struct Packet* ConsumePacket(struct Channel* channel)
@@ -149,38 +153,27 @@ struct Packet* ConsumePacket(struct Channel* channel)
         return NULL;
     }
 
-    if (channel->sent_tail_ == NULL) {
+    if (channel->sent_head_ == NULL) {
         // printf("no packets to consume\n");
         return NULL;
     }
 
-    struct Packet* packet = channel->sent_tail_;
-    time_t time_diff = time(NULL) - packet->ts_;
+    struct Packet* packet = channel->sent_head_;
+
+    time_t ts = time(NULL);
+    time_t time_diff = ts - packet->ts_;
     if (time_diff < packet->delay_) {
-        // printf("%s: need to delay packet: time passed %ld, %d delay, packet: %d\n", __FUNCTION__, time_diff, packet->delay_, packet->seq_number_);
+        // printf("%s: need to delay packet: time passed %ld, %d delay, packet: %d, ts: %ld\n", __FUNCTION__, time_diff, packet->delay_, packet->seq_number_, ts);
         return NULL;
     }
 
-    if (channel->enable_packet_loss_) {
-        BOOL need_to_drop = (channel->drop_count_++ < channel->drop_threshold_);
-        if (channel->drop_count_ == 100) {
-            channel->drop_count_ = 0;
-        }
-
-        if (need_to_drop) {
-            printf("channel is not able to deliver the packet, dropping %d packet...\n", packet->seq_number_);
-            FreePacket(channel, packet);
-            return NULL;
-        }
-    }
-
     struct Packet* clone = ClonePacket(packet);
-    FreePacket(channel, packet);
+    FreePacket(channel, packet, DELIVERED);
 
     return clone;
 }
 
-struct Channel* InitChannel(int max_packets, int packet_len, float packet_loss)
+struct Channel* InitChannel(int packet_len, float packet_loss)
 {
     int channel_size = sizeof(struct Channel);
     struct Channel* channel = malloc(channel_size);
@@ -189,7 +182,6 @@ struct Channel* InitChannel(int max_packets, int packet_len, float packet_loss)
         channel->enable_packet_delay_ = TRUE;
         channel->enable_packet_loss_ = TRUE;
         channel->enable_random_rate_ = TRUE;
-        channel->max_packets_ = max_packets;
         channel->bits_sent_per_second_ = 0;
         channel->max_packet_len_ = packet_len;
         channel->ts_ = time(NULL);
@@ -198,27 +190,14 @@ struct Channel* InitChannel(int max_packets, int packet_len, float packet_loss)
         channel->seq_num_mismatch_handler_ = NULL;
         channel->sender_ = NULL;
         channel->receiver_ = NULL;
-        // channel->policy_ = NO_REALLOC;
-        channel->policy_ = REALLOC;
-        channel->sent_ = NULL;
+        channel->sent_head_ = NULL;
         channel->sent_tail_ = NULL;
-        for (int i = 0; i < max_packets; i++) {
-            FreePacket(channel, InitPacket(channel->max_packet_len_, channel->enable_packet_delay_));
-        }
         channel->drop_threshold_ = packet_loss * 100;
         channel->drop_count_ = 0;
+        channel->fragments_total_count_ = 0;
+        channel->packet_reasm_buf_ = NULL;
     }
     return channel;
-}
-
-void ResetChannel(struct Channel* channel)
-{
-    struct Packet* packet = channel->sent_;
-    while (packet) {
-        struct Packet* next = packet->next_;
-        FreePacket(channel, packet);
-        packet = next;
-    }
 }
 
 void CloseChannel(struct Channel* channel)
@@ -228,16 +207,13 @@ void CloseChannel(struct Channel* channel)
         return;
     }
 
-    while(channel->free_) {
-        struct Packet* packet = channel->free_;
-        channel->free_ = packet->next_;
-        free(packet);
-    }
-
-    while(channel->sent_) {
-        struct Packet* packet = channel->sent_;
-        channel->sent_ = packet->next_;
-        free(packet);
+    if (channel->packet_reasm_buf_ != NULL) {
+        for (int i = 0; i < channel->fragments_total_count_; i++) {
+            if (channel->packet_reasm_buf_[i].buffer_ != NULL) {
+                free(channel->packet_reasm_buf_[i].buffer_);
+            }
+        }
+        free(channel->packet_reasm_buf_);
     }
 
     free(channel);

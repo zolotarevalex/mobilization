@@ -4,8 +4,8 @@
 #include <assert.h>
 
 
-static const int MAX_WAIT_TIME = 1;
-static const int FRAGMENT_ACK_BASE = 10;
+static const int MAX_WAIT_TIME = 0;
+static const int FRAGMENT_ACK_BASE = 100;
 
 struct Producer* InitProducer(struct Channel* channel, const char* file_name)
 {
@@ -66,6 +66,7 @@ struct Producer* InitProducer(struct Channel* channel, const char* file_name)
     channel->sender_ = producer;
     channel->ack_handler_ = HandleFragmentAck;
     channel->seq_num_mismatch_handler_ = HandleFragmentSeqNumberMismatch;
+    channel->fragments_total_count_ = producer->total_fragment_number_;
 
     producer->resend_seq_start_ = -1;
     producer->resend_seq_end_ = -1;
@@ -151,10 +152,11 @@ void HandleFragmentSeqNumberMismatch(struct Channel* channel, int expected, int 
     }
     
     assert(expected <= received);
-    channel->sender_->resend_seq_start_ = expected;
-    channel->sender_->resend_seq_end_ = expected;
-
-    assert(channel->sender_->resend_seq_start_ < channel->sender_->total_fragment_number_);
+    if (!HasFragmentsToResend(channel->sender_)) {
+        channel->sender_->resend_seq_start_ = expected;
+        channel->sender_->resend_seq_end_ = expected;
+        assert(channel->sender_->resend_seq_start_ < channel->sender_->total_fragment_number_);
+    }
 
     if (SetFlag(channel->sender_->fragments_map_, channel->sender_->total_fragment_number_, received)) {
         channel->sender_->fragments_delivered_++;
@@ -244,6 +246,7 @@ int SendFileFragment(struct Producer* producer)
                 }
             } else {
                 fseek(producer->file_, GetFragmentOffset(producer, producer->fragment_seq_number_), SEEK_SET);
+                printf("%s: failed to send %d fragment\n", __FUNCTION__, producer->fragment_seq_number_);
             }
         } else {
             time_t ts = time(NULL);

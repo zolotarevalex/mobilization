@@ -2,8 +2,6 @@
 
 #include <assert.h>
 
-static const int REASM_BUF_SIZE_INCREMENT = 1000;
-
 struct Consumer* InitConsumer(struct Channel* channel, const char* file_name)
 {
     if (channel == NULL) {
@@ -89,19 +87,12 @@ int ReceiveFileFragment(struct Consumer* receiver)
         if (receiver->next_seq_number_ < packet->seq_number_) {
 
             if (receiver->reasm_buf_ == NULL) {
-                receiver->reasm_buf_len_ += REASM_BUF_SIZE_INCREMENT;
-                receiver->reasm_buf_ = malloc(sizeof(struct Fragment)*receiver->reasm_buf_len_);
+                assert(receiver->channel_->fragments_total_count_ > 0);
+                receiver->reasm_buf_len_ = receiver->channel_->fragments_total_count_;
+                int size = sizeof(struct Fragment)*receiver->reasm_buf_len_;
+                receiver->reasm_buf_ = malloc(size);
                 assert(receiver->reasm_buf_ != NULL);
-                memset(receiver->reasm_buf_, 0, receiver->reasm_buf_len_);
-            }
-
-            if (packet->seq_number_ >= receiver->reasm_buf_len_) {
-                int old_len = receiver->reasm_buf_len_;
-                receiver->reasm_buf_len_ = packet->seq_number_ + REASM_BUF_SIZE_INCREMENT;
-                receiver->reasm_buf_ = realloc(receiver->reasm_buf_, sizeof(struct Fragment)*receiver->reasm_buf_len_);
-                printf("%s: reallocating reasm buf with %d elements, offset %d\n", __FUNCTION__, receiver->reasm_buf_len_, packet->seq_number_);
-                assert(receiver->reasm_buf_ != NULL);
-                memset(&receiver->reasm_buf_[old_len], 0, receiver->reasm_buf_len_ - old_len);
+                memset(receiver->reasm_buf_, 0, size);
             }
 
             printf("%s: expected %d, received %d fragment\n", __FUNCTION__, receiver->next_seq_number_, packet->seq_number_);
@@ -136,6 +127,7 @@ int ReceiveFileFragment(struct Consumer* receiver)
             }
         }
 
+        free(packet->buffer_);
         free(packet);
     }
 
