@@ -89,7 +89,7 @@ int ReceiveFileFragment(struct Consumer* receiver)
             if (receiver->reasm_buf_ == NULL) {
                 assert(receiver->channel_->fragments_total_count_ > 0);
                 receiver->reasm_buf_len_ = receiver->channel_->fragments_total_count_;
-                int size = sizeof(struct Fragment)*receiver->reasm_buf_len_;
+                int size = sizeof(struct ConsumerFragment)*receiver->reasm_buf_len_;
                 receiver->reasm_buf_ = malloc(size);
                 assert(receiver->reasm_buf_ != NULL);
                 memset(receiver->reasm_buf_, 0, size);

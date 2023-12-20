@@ -89,10 +89,7 @@ int main(int argc, char* argv[])
     time_t start_ts = time(NULL);
 
     do {
-        int bytes_left = SendFileFragment(producer);
-        if (bytes_left > 0) {
-            // printf("bytes left %d\n", bytes_left);
-        }
+        SendFileFragment(producer);
         
         int bytes_received = ReceiveFileFragment(consumer);
         if (bytes_received > 0) {

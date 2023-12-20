@@ -7,7 +7,7 @@
 
 #include "channel.h"
 
-struct Fragment 
+struct ConsumerFragment 
 {
     int seq_number_;
     int len_;
@@ -20,7 +20,7 @@ struct Consumer
     FILE* file_; 
     int next_seq_number_;
     int reasm_buf_len_;
-    struct Fragment* reasm_buf_;
+    struct ConsumerFragment* reasm_buf_;
 };
 struct Consumer* InitConsumer(struct Channel* channel, const char* file_name);
 void CloseConsumer(struct Consumer* consumer);
