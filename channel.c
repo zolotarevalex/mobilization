@@ -104,8 +104,8 @@ BOOL AddPacket(struct Channel* channel, const char* buffer, int len, int seq_num
 
         // printf("%s: changing list structure for %d fragment\n", __FUNCTION__, seq_number);
     } else {
-        printf("%s, attempt ot send a copy of %d fragment\n", __FUNCTION__, seq_number);
         packet->resend_count_++;
+        printf("%s, attempt ot send a copy of %d fragment, already sent %d times\n", __FUNCTION__, seq_number, packet->resend_count_);
     }
 
     channel->bits_sent_per_second_ += len*8;
